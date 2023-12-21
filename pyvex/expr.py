@@ -269,6 +269,12 @@ class RdTmp(IRExpr):
 _RDTMP_POOL = list(RdTmp(i) for i in range(0, 1024))
 
 
+class DataSensitiveRdTmp(RdTmp):
+    def __init__(self, tmp, block_id):
+        super(DataSensitiveRdTmp, self).__init__(tmp)
+        self.block_id = block_id
+
+
 class Get(IRExpr):
     """
     Read a guest register, at a fixed offset in the guest state.
