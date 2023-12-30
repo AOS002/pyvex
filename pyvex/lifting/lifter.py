@@ -1,4 +1,7 @@
+from typing import Optional, Union
+
 from pyvex.block import IRSB
+from pyvex.types import Arch, LiftSource
 
 # pylint:disable=attribute-defined-outside-init
 
@@ -20,6 +23,8 @@ class Lifter:
         "addr",
         "cross_insn_opt",
         "load_from_ro_regions",
+        "disasm",
+        "dump_irsb",
     )
 
     """
@@ -42,27 +47,29 @@ class Lifter:
     REQUIRE_DATA_C = False
     REQUIRE_DATA_PY = False
 
-    def __init__(self, arch, addr):
-        self.arch = arch
-        self.addr = addr
+    def __init__(self, arch: Arch, addr: int):
+        self.arch: Arch = arch
+        self.addr: int = addr
 
-    def _lift(
+    def lift(
         self,
-        data,
-        bytes_offset=None,
-        max_bytes=None,
-        max_inst=None,
-        opt_level=1,
-        traceflags=None,
-        allow_arch_optimizations=None,
-        strict_block_end=None,
-        skip_stmts=False,
-        collect_data_refs=False,
-        cross_insn_opt=True,
-        load_from_ro_regions=False,
+        data: LiftSource,
+        bytes_offset: Optional[int] = None,
+        max_bytes: Optional[int] = None,
+        max_inst: Optional[int] = None,
+        opt_level: Union[int, float] = 1,
+        traceflags: Optional[int] = None,
+        allow_arch_optimizations: Optional[bool] = None,
+        strict_block_end: Optional[bool] = None,
+        skip_stmts: bool = False,
+        collect_data_refs: bool = False,
+        cross_insn_opt: bool = True,
+        load_from_ro_regions: bool = False,
+        disasm: bool = False,
+        dump_irsb: bool = False,
     ):
         """
-        Wrapper around the `lift` method on Lifters. Should not be overridden in child classes.
+        Wrapper around the `_lift` method on Lifters. Should not be overridden in child classes.
 
         :param data:                The bytes to lift as either a python string of bytes or a cffi buffer object.
         :param bytes_offset:        The offset into `data` to start lifting at.
@@ -80,8 +87,10 @@ class Lifter:
         :param skip_stmts:          Should the lifter skip transferring IRStmts from C to Python.
         :param collect_data_refs:   Should the LibVEX lifter collect data references in C.
         :param cross_insn_opt:      If cross-instruction-boundary optimizations are allowed or not.
+        :param disasm:              Should the GymratLifter generate disassembly during lifting.
+        :param dump_irsb:           Should the GymratLifter log the lifted IRSB.
         """
-        irsb = IRSB.empty_block(self.arch, self.addr)
+        irsb: IRSB = IRSB.empty_block(self.arch, self.addr)
         self.data = data
         self.bytes_offset = bytes_offset
         self.opt_level = opt_level
@@ -95,10 +104,12 @@ class Lifter:
         self.irsb = irsb
         self.cross_insn_opt = cross_insn_opt
         self.load_from_ro_regions = load_from_ro_regions
-        self.lift()
+        self.disasm = disasm
+        self.dump_irsb = dump_irsb
+        self._lift()
         return self.irsb
 
-    def lift(self):
+    def _lift(self):
         """
         Lifts the data using the information passed into _lift. Should be overridden in child classes.
 

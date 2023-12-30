@@ -1,4 +1,5 @@
 import logging
+from typing import TYPE_CHECKING, List, Type
 
 import bitstring
 
@@ -7,6 +8,9 @@ from pyvex.errors import LiftingException
 from pyvex.lifting.lifter import Lifter
 
 from .vex_helper import IRSBCustomizer, JumpKind
+
+if TYPE_CHECKING:
+    from .instr_helper import Instruction
 
 log = logging.getLogger(__name__)
 
@@ -38,16 +42,18 @@ class GymratLifter(Lifter):
         "bitstrm",
         "errors",
         "thedata",
+        "disassembly",
     )
 
     REQUIRE_DATA_PY = True
-    instrs = None
+    instrs: List[Type["Instruction"]]
 
-    def __init__(self, *args):
-        super().__init__(*args)
+    def __init__(self, arch, addr):
+        super().__init__(arch, addr)
         self.bitstrm = None
         self.errors = None
         self.thedata = None
+        self.disassembly = None
 
     def create_bitstrm(self):
         self.bitstrm = bitstring.ConstBitStream(bytes=self.thedata)
@@ -97,7 +103,7 @@ class GymratLifter(Lifter):
             log.exception(f"Error decoding block at offset {bytepos:#x} (address {addr:#x}):")
             raise
 
-    def lift(self, disassemble=False, dump_irsb=False):
+    def _lift(self):
         self.thedata = (
             self.data[: self.max_bytes]
             if isinstance(self.data, (bytes, bytearray, memoryview))
@@ -106,8 +112,8 @@ class GymratLifter(Lifter):
         log.debug(repr(self.thedata))
         instructions = self.decode()
 
-        if disassemble:
-            return [instr.disassemble() for instr in instructions]
+        if self.disasm:
+            self.disassembly = [instr.disassemble() for instr in instructions]
         self.irsb.jumpkind = JumpKind.Invalid
         irsb_c = IRSBCustomizer(self.irsb)
         log.debug("Decoding complete.")
@@ -126,8 +132,8 @@ class GymratLifter(Lifter):
             dst = irsb_c.irsb.addr + irsb_c.irsb.size
             dst_ty = vex_int_class(irsb_c.irsb.arch.bits).type
             irsb_c.irsb.next = irsb_c.mkconst(dst, dst_ty)
-        log.debug(self.irsb._pp_str())
-        if dump_irsb:
+        log.debug(str(self.irsb))
+        if self.dump_irsb:
             self.irsb.pp()
         return self.irsb
 
@@ -136,11 +142,13 @@ class GymratLifter(Lifter):
         insts = self.disassemble()
         for addr, name, args in insts:
             args_str = ",".join(str(a) for a in args)
-            disasstr += f"{addr:0#8x}:\t{name} {args_str}\n"
+            disasstr += f"{addr:#08x}:\t{name} {args_str}\n"
         print(disasstr)
 
     def error(self):
         return self.errors
 
     def disassemble(self):
-        return self.lift(disassemble=True)
+        if self.disassembly is None:
+            self.lift(self.data, disasm=True)
+        return self.disassembly

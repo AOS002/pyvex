@@ -1,8 +1,6 @@
 import logging
 import re
-from typing import List, Optional
-
-from archinfo import RegisterOffset, TmpVar
+from typing import Dict, List, Optional, Tuple
 
 from .const import U8, U16, U32, U64, IRConst, get_type_size
 from .enums import IRCallee, IRRegArray, VEXObject, get_enum_from_int, get_int_from_enum
@@ -23,7 +21,13 @@ class IRExpr(VEXObject):
     tag_int = 0  # set automatically at bottom of file
 
     def pp(self):
-        print(self.__str__())
+        print(str(self))
+
+    def __str__(self):
+        return self._pp_str()
+
+    def _pp_str(self) -> str:
+        raise NotImplementedError
 
     @property
     def child_expressions(self) -> List["IRExpr"]:
@@ -70,7 +74,7 @@ class IRExpr(VEXObject):
             v = getattr(self, k)
             if isinstance(v, IRExpr) and v in replacements:
                 setattr(self, k, replacements.get(v))
-            elif type(v) is list:
+            elif isinstance(v, list):
                 # Replace the instance in the list
                 for i, expr_ in enumerate(v):
                     if isinstance(expr_, IRExpr) and expr_ in replacements:
@@ -91,7 +95,7 @@ class IRExpr(VEXObject):
                 v.replace_expression(replacements)
 
     @staticmethod
-    def _from_c(c_expr) -> "IRExpr":
+    def _from_c(c_expr) -> Optional["IRExpr"]:
         if c_expr == ffi.NULL or c_expr[0] == ffi.NULL:
             return None
 
@@ -125,7 +129,7 @@ class Binder(IRExpr):
     def __init__(self, binder):
         self.binder = binder
 
-    def __str__(self):
+    def _pp_str(self):
         return "Binder"
 
     @staticmethod
@@ -145,7 +149,7 @@ class VECRET(IRExpr):
 
     __slots__ = []
 
-    def __str__(self):
+    def _pp_str(self):
         return "VECRET"
 
     @staticmethod
@@ -165,7 +169,7 @@ class GSPTR(IRExpr):
 
     tag = "Iex_GSPTR"
 
-    def __str__(self):
+    def _pp_str(self):
         return "GSPTR"
 
     @staticmethod
@@ -202,7 +206,7 @@ class GetI(IRExpr):
     def index(self):
         return self.ix
 
-    def __str__(self):
+    def _pp_str(self):
         return f"GetI({self.descr})[{self.ix},{self.bias}]"
 
     @staticmethod
@@ -229,14 +233,14 @@ class RdTmp(IRExpr):
 
     tag = "Iex_RdTmp"
 
-    def __init__(self, tmp: TmpVar):
+    def __init__(self, tmp):
         self._tmp = tmp
 
-    def __str__(self):
+    def _pp_str(self):
         return "t%d" % self.tmp
 
     @property
-    def tmp(self) -> TmpVar:
+    def tmp(self):
         return self._tmp
 
     @staticmethod
@@ -284,7 +288,7 @@ class Get(IRExpr):
 
     tag = "Iex_Get"
 
-    def __init__(self, offset: RegisterOffset, ty: str, ty_int: Optional[int] = None):
+    def __init__(self, offset, ty: str, ty_int: Optional[int] = None):
         self.offset = offset
         if ty_int is None:
             self.ty_int = get_int_from_enum(ty)
@@ -299,11 +303,13 @@ class Get(IRExpr):
     def type(self):
         return get_enum_from_int(self.ty_int)
 
-    def __str__(self, reg_name=None):
-        if reg_name:
-            return f"GET:{self.ty[4:]}({reg_name})"
-        else:
-            return f"GET:{self.ty[4:]}(offset={self.offset})"
+    def _pp_str(self):
+        return f"GET:{self.ty[4:]}(offset={self.offset})"
+
+    def pp_str_with_name(self, reg_name: str):
+        """pp_str_with_name is used to print the expression with the name of the
+        register instead of the offset"""
+        return f"GET:{self.ty[4:]}({reg_name})"
 
     @staticmethod
     def _from_c(c_expr):
@@ -333,7 +339,7 @@ class Qop(IRExpr):
         self.op = op
         self.args = args
 
-    def __str__(self):
+    def _pp_str(self):
         return "{}({})".format(self.op[4:], ",".join(str(a) for a in self.args))
 
     @property
@@ -402,7 +408,7 @@ class Triop(IRExpr):
         self.op = op
         self.args = args
 
-    def __str__(self):
+    def _pp_str(self):
         return "{}({})".format(self.op[4:], ",".join(str(a) for a in self.args))
 
     @property
@@ -463,7 +469,7 @@ class Binop(IRExpr):
         self.args = args
         self._op = op if op is not None else None
 
-    def __str__(self):
+    def _pp_str(self):
         return "{}({})".format(self.op[4:], ",".join(str(a) for a in self.args))
 
     @property
@@ -524,7 +530,7 @@ class Unop(IRExpr):
         self.op = op
         self.args = args
 
-    def __str__(self):
+    def _pp_str(self):
         return "{}({})".format(self.op[4:], ",".join(str(a) for a in self.args))
 
     @property
@@ -579,7 +585,7 @@ class Load(IRExpr):
     def type(self):
         return self.ty
 
-    def __str__(self):
+    def _pp_str(self):
         return f"LD{self.end[-2:].lower()}:{self.ty[4:]}({self.addr})"
 
     @staticmethod
@@ -619,7 +625,7 @@ class Const(IRExpr):
     def __init__(self, con: "IRConst"):
         self._con = con
 
-    def __str__(self):
+    def _pp_str(self):
         return str(self.con)
 
     @property
@@ -667,7 +673,7 @@ class ITE(IRExpr):
         self.iffalse = iffalse
         self.iftrue = iftrue
 
-    def __str__(self):
+    def _pp_str(self):
         return f"ITE({self.cond},{self.iftrue},{self.iffalse})"
 
     @staticmethod
@@ -726,7 +732,7 @@ class CCall(IRExpr):
     def callee(self):
         return self.cee
 
-    def __str__(self):
+    def _pp_str(self):
         return "{}({}):{}".format(self.cee, ",".join(str(a) for a in self.args), self.retty)
 
     @property
@@ -762,7 +768,7 @@ def get_op_retty(op):
     return op_arg_types(op)[0]
 
 
-op_signatures = {}
+op_signatures: Dict[str, Tuple[str, Tuple[str, ...]]] = {}
 
 
 def _request_op_type_from_cache(op):
